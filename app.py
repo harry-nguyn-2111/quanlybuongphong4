@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, date
-import mysql.connector
+import pymysql
 import os
 
 st.image("VT.png", width=2000)
@@ -17,62 +17,58 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# ============================================================
-# DATABASE CONNECTION - AIVEN MYSQL
-# ============================================================
-
 DB_CONFIG = {
     "host": "mysql-425beae-quantricongngheso.d.aivencloud.com",
     "port": 28430,
     "user": "avnadmin",
     "password": "AVNS_rh-nVNeJhxVV2BtOJfT",
     "database": "defaultdb",
-    "ssl_disabled": False
+    "charset": "utf8mb4",
+    "ssl": {}
 }
-
-
-def get_connection():
-    return mysql.connector.connect(**DB_CONFIG)
-
-
-conn = get_connection()
-cursor = conn.cursor()
 
 # ============================================================
 # DATABASE
 # ============================================================
 
+def get_connection():
+    return pymysql.connect(**DB_CONFIG)
+
+
+conn = get_connection()
+cursor = conn.cursor()
+
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS rooms (
     id INT PRIMARY KEY AUTO_INCREMENT,
-    room_number VARCHAR(50) UNIQUE,
-    room_type VARCHAR(50),
+    room_number VARCHAR(255) UNIQUE,
+    room_type TEXT,
     floor INT,
     price DECIMAL(15,2),
-    status VARCHAR(50) DEFAULT 'Trống',
-    guest_name VARCHAR(255) DEFAULT '',
-    phone VARCHAR(50) DEFAULT '',
-    checkin VARCHAR(50) DEFAULT '',
-    checkout VARCHAR(50) DEFAULT '',
-    note TEXT
+    status TEXT DEFAULT 'Trống',
+    guest_name TEXT DEFAULT '',
+    phone TEXT DEFAULT '',
+    checkin TEXT DEFAULT '',
+    checkout TEXT DEFAULT '',
+    note TEXT DEFAULT ''
 )
 """)
 
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS housekeeping (
     id INT PRIMARY KEY AUTO_INCREMENT,
-    room_number VARCHAR(50),
-    task VARCHAR(255),
+    room_number TEXT,
+    task TEXT,
     completed INT DEFAULT 0,
-    updated_at VARCHAR(50)
+    updated_at TEXT
 )
 """)
 
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS minibar (
     id INT PRIMARY KEY AUTO_INCREMENT,
-    room_number VARCHAR(50),
-    item VARCHAR(255),
+    room_number TEXT,
+    item TEXT,
     quantity INT DEFAULT 0,
     price DECIMAL(15,2) DEFAULT 0
 )
@@ -81,11 +77,11 @@ CREATE TABLE IF NOT EXISTS minibar (
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS transactions (
     id INT PRIMARY KEY AUTO_INCREMENT,
-    room_number VARCHAR(50),
-    guest_name VARCHAR(255),
-    transaction_type VARCHAR(100),
+    room_number TEXT,
+    guest_name TEXT,
+    transaction_type TEXT,
     amount DECIMAL(15,2),
-    created_at VARCHAR(50)
+    created_at TEXT
 )
 """)
 
@@ -197,7 +193,6 @@ st.sidebar.metric("Đang có khách", occupied)
 if menu == "📊 Tổng quan":
 
     st.title("📊 Tổng quan khách sạn")
-
     st.caption(
         f"Cập nhật: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
     )
@@ -214,14 +209,12 @@ if menu == "📊 Tổng quan":
 
     # Công suất phòng
     occupancy = 0
-
     if total_rooms > 0:
         occupancy = occupied / total_rooms * 100
 
     st.subheader("📈 Công suất phòng")
 
     st.progress(int(occupancy))
-
     st.write(f"**{occupancy:.1f}%** phòng đang có khách")
 
     st.divider()
@@ -242,12 +235,11 @@ if menu == "📊 Tổng quan":
         col = cols[index % 5]
 
         with col:
-
             st.markdown(
                 f"""
                 ### {room['room_number']}
                 {status_colors.get(room['status'], "⚪")} **{room['status']}**
-
+                
                 Loại: {room['room_type']}  
                 Giá: {money(room['price'])}
                 """
@@ -267,14 +259,12 @@ elif menu == "🛏️ Quản lý phòng":
     col1, col2 = st.columns(2)
 
     with col1:
-
         filter_status = st.selectbox(
             "Lọc theo trạng thái",
             ["Tất cả", "Trống", "Đang ở", "Đang dọn", "Bảo trì"]
         )
 
     with col2:
-
         search = st.text_input(
             "🔎 Tìm số phòng"
         )
@@ -282,18 +272,15 @@ elif menu == "🛏️ Quản lý phòng":
     filtered = rooms.copy()
 
     if filter_status != "Tất cả":
-
         filtered = filtered[
             filtered["status"] == filter_status
         ]
 
     if search:
-
         filtered = filtered[
             filtered["room_number"].str.contains(
                 search,
-                case=False,
-                na=False
+                case=False
             )
         ]
 
@@ -352,7 +339,6 @@ elif menu == "🛏️ Quản lý phòng":
         "💾 Cập nhật trạng thái",
         type="primary"
     ):
-
         update_room_status(
             room_number,
             new_status
@@ -521,11 +507,13 @@ elif menu == "🚪 Trả phòng":
 
         st.divider()
 
-        minibar_total = cursor.execute("""
+        cursor.execute("""
             SELECT COALESCE(SUM(quantity * price), 0)
             FROM minibar
             WHERE room_number=%s
-        """, (room_number,)).fetchone()[0]
+        """, (room_number,))
+
+        minibar_total = cursor.fetchone()[0]
 
         other_charge = st.number_input(
             "💳 Chi phí phát sinh khác",
@@ -535,7 +523,7 @@ elif menu == "🚪 Trả phòng":
 
         room_price = float(room["price"])
 
-        total = room_price + float(minibar_total or 0) + other_charge
+        total = room_price + minibar_total + other_charge
 
         st.subheader("💰 Tổng thanh toán")
 
@@ -548,7 +536,7 @@ elif menu == "🚪 Trả phòng":
 
         c2.metric(
             "Minibar",
-            money(minibar_total or 0)
+            money(minibar_total)
         )
 
         c3.metric(
@@ -756,12 +744,8 @@ elif menu == "🍾 Minibar":
     st.divider()
 
     minibar_data = pd.read_sql_query("""
-        SELECT
-            room_number,
-            item,
-            quantity,
-            price,
-            quantity * price AS total
+        SELECT room_number, item, quantity, price,
+               quantity * price AS total
         FROM minibar
         WHERE room_number=%s
     """, conn, params=(room_number,))
@@ -926,7 +910,7 @@ elif menu == "⚙️ Cài đặt":
 
                 st.rerun()
 
-            except mysql.connector.IntegrityError:
+            except pymysql.IntegrityError:
 
                 st.error(
                     "Số phòng này đã tồn tại."
