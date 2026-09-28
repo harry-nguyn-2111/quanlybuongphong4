@@ -822,10 +822,15 @@ elif menu == "🍾 Minibar":
     st.title("🍾 Quản lý Minibar")
 
     rooms = get_rooms()
+    occupied_rooms = rooms[rooms["status"] == "Đang ở"]
+
+    if occupied_rooms.empty:
+        st.info("Hiện tại chưa có phòng nào có khách để quản lý Minibar.")
+        st.stop()
 
     room_number = st.selectbox(
         "Chọn phòng",
-        rooms["room_number"].tolist()
+        occupied_rooms["room_number"].tolist()
     )
 
     minibar_items = [
