@@ -42,46 +42,46 @@ cursor.execute("""
 CREATE TABLE IF NOT EXISTS rooms (
     id INT PRIMARY KEY AUTO_INCREMENT,
     room_number VARCHAR(255) UNIQUE,
-    room_type TEXT,
+    room_type VARCHAR(255),
     floor INT,
-    price DECIMAL(15,2),
-    status TEXT DEFAULT 'Trống',
-    guest_name TEXT DEFAULT '',
-    phone TEXT DEFAULT '',
-    checkin TEXT DEFAULT '',
-    checkout TEXT DEFAULT '',
-    note TEXT DEFAULT ''
+    price DECIMAL(10,2),
+    status VARCHAR(255) DEFAULT 'Trống',
+    guest_name VARCHAR(255) DEFAULT '',
+    phone VARCHAR(255) DEFAULT '',
+    checkin VARCHAR(255) DEFAULT '',
+    checkout VARCHAR(255) DEFAULT '',
+    note VARCHAR(255) DEFAULT ''
 )
 """)
 
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS housekeeping (
     id INT PRIMARY KEY AUTO_INCREMENT,
-    room_number TEXT,
-    task TEXT,
+    room_number VARCHAR(255),
+    task VARCHAR(255),
     completed INT DEFAULT 0,
-    updated_at TEXT
+    updated_at VARCHAR(255)
 )
 """)
 
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS minibar (
     id INT PRIMARY KEY AUTO_INCREMENT,
-    room_number TEXT,
-    item TEXT,
+    room_number VARCHAR(255),
+    item VARCHAR(255),
     quantity INT DEFAULT 0,
-    price DECIMAL(15,2) DEFAULT 0
+    price DECIMAL(10,2) DEFAULT 0
 )
 """)
 
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS transactions (
     id INT PRIMARY KEY AUTO_INCREMENT,
-    room_number TEXT,
-    guest_name TEXT,
-    transaction_type TEXT,
-    amount DECIMAL(15,2),
-    created_at TEXT
+    room_number VARCHAR(255),
+    guest_name VARCHAR(255),
+    transaction_type VARCHAR(255),
+    amount DECIMAL(10,2),
+    created_at VARCHAR(255)
 )
 """)
 
@@ -523,7 +523,7 @@ elif menu == "🚪 Trả phòng":
 
         room_price = float(room["price"])
 
-        total = room_price + minibar_total + other_charge
+        total = room_price + float(minibar_total) + other_charge
 
         st.subheader("💰 Tổng thanh toán")
 
