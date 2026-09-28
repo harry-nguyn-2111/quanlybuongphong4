@@ -740,10 +740,15 @@ elif menu == "🧹 Buồng phòng":
     st.title("🧹 Quản lý buồng phòng")
 
     rooms = get_rooms()
+    cleaning_rooms = rooms[rooms["status"] == "Đang dọn"]
+
+    if cleaning_rooms.empty:
+        st.info("Hiện tại không có phòng nào đang dọn.")
+        st.stop()
 
     room_number = st.selectbox(
         "Chọn phòng",
-        rooms["room_number"].tolist()
+        cleaning_rooms["room_number"].tolist()
     )
 
     st.divider()
