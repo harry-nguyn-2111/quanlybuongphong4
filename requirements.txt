@@ -3,3 +3,4 @@ pandas
 pymysql
 sqlalchemy
 openai
+xlsxwriter
