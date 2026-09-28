@@ -21,6 +21,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# Host database cloud mysql - aiven
 DB_CONFIG = {
     "host": "mysql-425beae-quantricongngheso.d.aivencloud.com",
     "port": 28430,
@@ -36,8 +37,8 @@ DB_CONFIG = {
 # GEMINI
 # ============================================================
 
+# AI CHAT BOT
 GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
-
 
 @st.cache_resource
 def get_gemini_client():
