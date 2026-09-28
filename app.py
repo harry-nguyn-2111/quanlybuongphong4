@@ -3,6 +3,7 @@ import pandas as pd
 from datetime import datetime, date
 import pymysql
 import os
+import time
 
 from google import genai
 from google.genai import types
@@ -52,7 +53,7 @@ def get_gemini_client():
 
 gemini_client = get_gemini_client()
 
-GEMINI_MODEL = "gemini-3.8-flash"
+GEMINI_MODEL = "gemini-3.5-flash"
 
 
 # ============================================================
@@ -374,6 +375,10 @@ CÂU HỎI HIỆN TẠI:
 {question}
 """
 
+      for attempt in range(3):
+
+    try:
+
         response = gemini_client.models.generate_content(
             model=GEMINI_MODEL,
             contents=prompt,
@@ -385,6 +390,14 @@ CÂU HỎI HIỆN TẠI:
         )
 
         return response.text
+
+    except Exception as e:
+
+        if "503" in str(e) and attempt < 2:
+            time.sleep(2 * (attempt + 1))
+            continue
+
+        return f"Không thể kết nối Gemini: {str(e)}"
 
     except Exception as e:
 
