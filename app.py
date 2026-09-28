@@ -4,6 +4,7 @@ from datetime import datetime, date
 import pymysql
 import os
 import json
+import io
 from openai import OpenAI
 st.image("VT.png", width=2000)
 # ============================================================
@@ -920,6 +921,7 @@ elif menu == "🍾 Minibar":
 elif menu == "💰 Doanh thu":
 
     st.title("💰 Doanh thu")
+    st.caption("Theo dõi doanh thu, biểu đồ và dữ liệu giao dịch theo khoảng ngày.")
 
     transactions = pd.read_sql_query(
         "SELECT * FROM transactions ORDER BY id DESC",
@@ -932,50 +934,296 @@ elif menu == "💰 Doanh thu":
 
     else:
 
-        total_revenue = transactions["amount"].sum()
-
-        room_revenue = transactions[
-            transactions["transaction_type"] == "Tiền phòng"
-        ]["amount"].sum()
-
-        payment_revenue = transactions[
-            transactions["transaction_type"] == "Thanh toán"
-        ]["amount"].sum()
-
-        c1, c2, c3 = st.columns(3)
-
-        c1.metric(
-            "💰 Tổng doanh thu",
-            money(total_revenue)
+        transactions["created_at"] = pd.to_datetime(
+            transactions["created_at"],
+            errors="coerce"
         )
+        transactions["amount"] = pd.to_numeric(
+            transactions["amount"],
+            errors="coerce"
+        ).fillna(0)
 
-        c2.metric(
-            "🛏️ Tiền phòng",
-            money(room_revenue)
-        )
+        valid_dates = transactions["created_at"].dropna()
 
-        c3.metric(
-            "💳 Thanh toán",
-            money(payment_revenue)
-        )
+        if valid_dates.empty:
+            st.warning("Không có giao dịch nào có ngày hợp lệ để lọc.")
+        else:
+            min_date = valid_dates.min().date()
+            max_date = valid_dates.max().date()
 
-        st.divider()
+            st.subheader("📅 Bộ lọc ngày")
 
-        st.subheader("📋 Lịch sử giao dịch")
+            date_col1, date_col2 = st.columns(2)
 
-        st.dataframe(
-            transactions,
-            use_container_width=True,
-            hide_index=True
-        )
+            with date_col1:
+                start_date = st.date_input(
+                    "Từ ngày",
+                    value=min_date,
+                    min_value=min_date,
+                    max_value=max_date
+                )
 
-        st.subheader("📊 Doanh thu theo loại")
+            with date_col2:
+                end_date = st.date_input(
+                    "Đến ngày",
+                    value=max_date,
+                    min_value=min_date,
+                    max_value=max_date
+                )
 
-        revenue_chart = transactions.groupby(
-            "transaction_type"
-        )["amount"].sum()
+            if start_date > end_date:
+                st.error("Ngày bắt đầu không được lớn hơn ngày kết thúc.")
+                st.stop()
 
-        st.bar_chart(revenue_chart)
+            filtered_transactions = transactions[
+                transactions["created_at"].dt.date.between(
+                    start_date,
+                    end_date
+                )
+            ].copy()
+
+            st.divider()
+
+            if filtered_transactions.empty:
+                st.info("Không có giao dịch trong khoảng ngày đã chọn.")
+            else:
+                total_revenue = filtered_transactions["amount"].sum()
+
+                room_revenue = filtered_transactions[
+                    filtered_transactions["transaction_type"] == "Tiền phòng"
+                ]["amount"].sum()
+
+                payment_revenue = filtered_transactions[
+                    filtered_transactions["transaction_type"] == "Thanh toán"
+                ]["amount"].sum()
+
+                transaction_count = len(filtered_transactions)
+
+                c1, c2, c3, c4 = st.columns(4)
+
+                c1.metric(
+                    "💰 Tổng doanh thu",
+                    money(total_revenue)
+                )
+
+                c2.metric(
+                    "🛏️ Tiền phòng",
+                    money(room_revenue)
+                )
+
+                c3.metric(
+                    "💳 Thanh toán",
+                    money(payment_revenue)
+                )
+
+                c4.metric(
+                    "🧾 Số giao dịch",
+                    transaction_count
+                )
+
+                st.divider()
+
+                # ========================================================
+                # BIỂU ĐỒ DOANH THU THEO NGÀY
+                # ========================================================
+
+                st.subheader("📈 Doanh thu theo ngày")
+
+                daily_revenue = (
+                    filtered_transactions
+                    .assign(date=filtered_transactions["created_at"].dt.date)
+                    .groupby("date", as_index=True)["amount"]
+                    .sum()
+                )
+
+                st.line_chart(
+                    daily_revenue,
+                    use_container_width=True
+                )
+
+                st.divider()
+
+                chart_col1, chart_col2 = st.columns(2)
+
+                with chart_col1:
+                    st.subheader("🥧 Doanh thu theo loại")
+
+                    revenue_by_type = (
+                        filtered_transactions
+                        .groupby("transaction_type")["amount"]
+                        .sum()
+                        .sort_values(ascending=False)
+                    )
+
+                    pie_data = revenue_by_type.reset_index()
+                    pie_data.columns = ["Loại giao dịch", "Doanh thu"]
+
+                    st.vega_lite_chart(
+                        pie_data,
+                        {
+                            "mark": {"type": "arc", "innerRadius": 0},
+                            "encoding": {
+                                "theta": {"field": "Doanh thu", "type": "quantitative"},
+                                "color": {"field": "Loại giao dịch", "type": "nominal"},
+                                "tooltip": [
+                                    {"field": "Loại giao dịch", "type": "nominal"},
+                                    {"field": "Doanh thu", "type": "quantitative", "format": ",.0f"}
+                                ]
+                            },
+                            "height": 320
+                        },
+                        use_container_width=True
+                    )
+
+                with chart_col2:
+                    st.subheader("🏨 Doanh thu theo phòng")
+
+                    revenue_by_room = (
+                        filtered_transactions
+                        .groupby("room_number")["amount"]
+                        .sum()
+                        .sort_values(ascending=False)
+                    )
+
+                    st.bar_chart(
+                        revenue_by_room,
+                        use_container_width=True
+                    )
+
+                st.divider()
+
+                # ========================================================
+                # DATA TABLE
+                # ========================================================
+
+                st.subheader("📋 Data table")
+
+                table_data = filtered_transactions.copy()
+                table_data["created_at"] = table_data["created_at"].dt.strftime(
+                    "%d/%m/%Y %H:%M:%S"
+                )
+
+                table_data = table_data[
+                    [
+                        "id",
+                        "room_number",
+                        "guest_name",
+                        "transaction_type",
+                        "amount",
+                        "created_at"
+                    ]
+                ].rename(columns={
+                    "id": "ID",
+                    "room_number": "Phòng",
+                    "guest_name": "Khách",
+                    "transaction_type": "Loại giao dịch",
+                    "amount": "Số tiền",
+                    "created_at": "Thời gian"
+                })
+
+                st.dataframe(
+                    table_data,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "Số tiền": st.column_config.NumberColumn(
+                            "Số tiền",
+                            format="%d VNĐ"
+                        )
+                    }
+                )
+
+                # ========================================================
+                # EXPORT EXCEL
+                # ========================================================
+
+                st.subheader("📥 Xuất Excel")
+
+                export_data = table_data.copy()
+                export_data["Số tiền"] = pd.to_numeric(
+                    export_data["Số tiền"],
+                    errors="coerce"
+                ).fillna(0)
+
+                output = io.BytesIO()
+
+                with pd.ExcelWriter(
+                    output,
+                    engine="xlsxwriter",
+                    datetime_format="dd/mm/yyyy hh:mm:ss"
+                ) as writer:
+                    export_data.to_excel(
+                        writer,
+                        index=False,
+                        sheet_name="Doanh thu"
+                    )
+
+                    workbook = writer.book
+                    worksheet = writer.sheets["Doanh thu"]
+
+                    header_format = workbook.add_format({
+                        "bold": True,
+                        "align": "center",
+                        "valign": "vcenter",
+                        "border": 1
+                    })
+
+                    money_format = workbook.add_format({
+                        "num_format": "#,##0 \"VNĐ\""
+                    })
+
+                    for col_num, value in enumerate(export_data.columns.values):
+                        worksheet.write(0, col_num, value, header_format)
+
+                    amount_col = export_data.columns.get_loc("Số tiền")
+                    worksheet.set_column(amount_col, amount_col, 18, money_format)
+                    worksheet.set_column(0, len(export_data.columns) - 1, 18)
+
+                    # Summary sheet
+                    summary = pd.DataFrame({
+                        "Chỉ số": [
+                            "Từ ngày",
+                            "Đến ngày",
+                            "Tổng doanh thu",
+                            "Tiền phòng",
+                            "Thanh toán",
+                            "Số giao dịch"
+                        ],
+                        "Giá trị": [
+                            str(start_date),
+                            str(end_date),
+                            total_revenue,
+                            room_revenue,
+                            payment_revenue,
+                            transaction_count
+                        ]
+                    })
+
+                    summary.to_excel(
+                        writer,
+                        index=False,
+                        sheet_name="Tổng quan"
+                    )
+
+                    summary_ws = writer.sheets["Tổng quan"]
+                    summary_ws.set_column(0, 0, 22)
+                    summary_ws.set_column(1, 1, 20)
+                    summary_ws.write(0, 0, "Chỉ số", header_format)
+                    summary_ws.write(0, 1, "Giá trị", header_format)
+
+                    summary_ws.write(2, 1, float(total_revenue), money_format)
+                    summary_ws.write(3, 1, float(room_revenue), money_format)
+                    summary_ws.write(4, 1, float(payment_revenue), money_format)
+
+                output.seek(0)
+
+                st.download_button(
+                    label="⬇️ Tải file Excel",
+                    data=output.getvalue(),
+                    file_name=f"doanh_thu_{start_date}_{end_date}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    type="primary"
+                )
 
 
 # ============================================================
