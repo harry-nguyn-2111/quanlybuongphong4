@@ -657,7 +657,7 @@ elif menu == "🚪 Trả phòng":
             WHERE room_number=%s
         """, (room_number,))
 
-        minibar_total = cursor.fetchone()[0]
+        minibar_total = float(cursor.fetchone()[0] or 0)
 
         other_charge = st.number_input(
             "💳 Chi phí phát sinh khác",
