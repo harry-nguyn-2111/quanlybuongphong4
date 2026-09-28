@@ -28,8 +28,8 @@ DB_CONFIG = {
 }
 
 # API key is stored in Streamlit Secrets, not in the source code.
-OPENAI_API_KEY = st.secrets.get("OPENAI_API_KEY", "")
-OPENAI_MODEL = "gpt-5.6-luna"
+OPENROUTER_API_KEY = st.secrets.get("OPENROUTER_API_KEY", "")
+OPENROUTER_MODEL = "openrouter/free"
 
 # ============================================================
 # DATABASE
@@ -158,17 +158,24 @@ def add_transaction(room_number, guest_name, transaction_type, amount):
 
 
 # ============================================================
-# OPENAI AI ASSISTANT
+# OPENROUTER AI ASSISTANT
 # ============================================================
 
-def get_openai_client():
-    if not OPENAI_API_KEY:
+def get_openrouter_client():
+    if not OPENROUTER_API_KEY:
         return None
 
-    return OpenAI(api_key=OPENAI_API_KEY)
+    return OpenAI(
+        api_key=OPENROUTER_API_KEY,
+        base_url="https://openrouter.ai/api/v1",
+        default_headers={
+            "HTTP-Referer": "https://streamlit.io/",
+            "X-Title": "Hotel Manager"
+        }
+    )
 
 
-openai_client = get_openai_client()
+openrouter_client = get_openrouter_client()
 
 
 def get_ai_data():
@@ -220,9 +227,9 @@ def get_ai_data():
     return data
 
 
-def ask_openai(question):
-    if not OPENAI_API_KEY or openai_client is None:
-        return "Chưa cấu hình OPENAI_API_KEY trong Streamlit Secrets."
+def ask_openrouter(question):
+    if not OPENROUTER_API_KEY or openrouter_client is None:
+        return "Chưa cấu hình OPENROUTER_API_KEY trong Streamlit Secrets."
 
     try:
         ai_data = get_ai_data()
@@ -256,28 +263,34 @@ LỊCH SỬ CHAT GẦN ĐÂY:
 Hãy trả lời trực tiếp câu hỏi của người dùng.
 """
 
-        response = openai_client.responses.create(
-            model=OPENAI_MODEL,
-            instructions=system_instruction,
-            input=prompt,
-            max_output_tokens=1000
+        response = openrouter_client.chat.completions.create(
+            model=OPENROUTER_MODEL,
+            messages=[
+                {"role": "system", "content": system_instruction},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.2,
+            max_tokens=1000
         )
 
-        return response.output_text
+        return response.choices[0].message.content
 
     except Exception as e:
         error_text = str(e)
 
         if "429" in error_text:
-            return "OpenAI đang giới hạn số request hoặc tài khoản chưa có đủ quota/billing."
+            return "OpenRouter đang giới hạn request hoặc free model đang quá tải. Hãy thử lại sau."
 
         if "401" in error_text:
-            return "OPENAI_API_KEY không hợp lệ hoặc chưa được cấp quyền."
+            return "OPENROUTER_API_KEY không hợp lệ hoặc chưa được cấp quyền."
+
+        if "402" in error_text:
+            return "Model bạn đang gọi không nằm trong free tier hoặc tài khoản không đủ credit."
 
         if "404" in error_text:
-            return f"Không tìm thấy model OpenAI: {OPENAI_MODEL}."
+            return f"Không tìm thấy model OpenRouter: {OPENROUTER_MODEL}."
 
-        return f"Không thể kết nối OpenAI: {error_text}"
+        return f"Không thể kết nối OpenRouter: {error_text}"
 
 
 # ============================================================
@@ -1083,8 +1096,8 @@ elif menu == "🤖 Trợ lý AI":
     st.title("🤖 Trợ lý AI")
     st.caption("Hỏi về tình trạng phòng, khách, minibar, doanh thu hoặc cách sử dụng hệ thống.")
 
-    if not OPENAI_API_KEY:
-        st.warning("Chưa cấu hình OPENAI_API_KEY. Hãy thêm API key vào Streamlit Secrets.")
+    if not OPENROUTER_API_KEY:
+        st.warning("Chưa cấu hình OPENROUTER_API_KEY. Hãy thêm API key vào Streamlit Secrets.")
     else:
         if "ai_messages" not in st.session_state:
             st.session_state.ai_messages = []
@@ -1106,7 +1119,7 @@ elif menu == "🤖 Trợ lý AI":
 
             with st.chat_message("assistant"):
                 with st.spinner("Đang xử lý..."):
-                    answer = ask_openai(question)
+                    answer = ask_openrouter(question)
                 st.markdown(answer)
 
             st.session_state.ai_messages.append({
