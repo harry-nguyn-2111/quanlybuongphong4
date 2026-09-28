@@ -178,6 +178,17 @@ def get_openrouter_client():
 
 openrouter_client = get_openrouter_client()
 
+# ============================================================
+# RESET CÁC Ô NHẬP SAU KHI THAO TÁC
+# ============================================================
+
+if "input_reset_version" not in st.session_state:
+    st.session_state.input_reset_version = 0
+
+
+def reset_input_widgets():
+    st.session_state.input_reset_version += 1
+
 
 def get_ai_data():
     """Read current hotel data so the AI can answer app/data questions."""
@@ -316,6 +327,8 @@ menu = st.sidebar.radio(
     ]
 )
 
+input_version = st.session_state.input_reset_version
+
 st.sidebar.divider()
 
 rooms = get_rooms()
@@ -405,12 +418,14 @@ elif menu == "🛏️ Quản lý phòng":
     with col1:
         filter_status = st.selectbox(
             "Lọc theo trạng thái",
-            ["Tất cả", "Trống", "Đang ở", "Đang dọn", "Bảo trì"]
+            ["Tất cả", "Trống", "Đang ở", "Đang dọn", "Bảo trì"],
+            key=f"filter_status_{input_version}"
         )
 
     with col2:
         search = st.text_input(
-            "🔎 Tìm số phòng"
+            "🔎 Tìm số phòng",
+            key=f"room_search_{input_version}"
         )
 
     filtered = rooms.copy()
@@ -466,7 +481,8 @@ elif menu == "🛏️ Quản lý phòng":
 
     room_number = st.selectbox(
         "Chọn phòng",
-        rooms["room_number"].tolist()
+        rooms["room_number"].tolist(),
+        key=f"manage_room_{input_version}"
     )
 
     new_status = st.selectbox(
@@ -476,7 +492,8 @@ elif menu == "🛏️ Quản lý phòng":
             "Đang ở",
             "Đang dọn",
             "Bảo trì"
-        ]
+        ],
+        key=f"new_status_{input_version}"
     )
 
     if st.button(
@@ -492,6 +509,7 @@ elif menu == "🛏️ Quản lý phòng":
             f"Phòng {room_number} → {new_status}"
         )
 
+        reset_input_widgets()
         st.rerun()
 
 
@@ -521,31 +539,37 @@ elif menu == "📋 Nhận phòng":
 
                 room_number = st.selectbox(
                     "🛏️ Phòng",
-                    available_rooms["room_number"].tolist()
+                    available_rooms["room_number"].tolist(),
+                    key=f"checkin_room_{input_version}"
                 )
 
                 guest_name = st.text_input(
-                    "👤 Tên khách *"
+                    "👤 Tên khách *",
+                    key=f"checkin_guest_name_{input_version}"
                 )
 
                 phone = st.text_input(
-                    "📱 Số điện thoại"
+                    "📱 Số điện thoại",
+                    key=f"checkin_phone_{input_version}"
                 )
 
             with col2:
 
                 checkin_date = st.date_input(
                     "📅 Ngày nhận phòng",
-                    date.today()
+                    date.today(),
+                    key=f"checkin_date_{input_version}"
                 )
 
                 checkout_date = st.date_input(
                     "📅 Ngày trả phòng",
-                    date.today()
+                    date.today(),
+                    key=f"checkout_date_{input_version}"
                 )
 
                 note = st.text_area(
-                    "📝 Ghi chú"
+                    "📝 Ghi chú",
+                    key=f"checkin_note_{input_version}"
                 )
 
             submit = st.form_submit_button(
@@ -602,6 +626,7 @@ elif menu == "📋 Nhận phòng":
                     f"✅ Đã nhận phòng {room_number} cho {guest_name}"
                 )
 
+                reset_input_widgets()
                 st.rerun()
 
 
@@ -662,7 +687,8 @@ elif menu == "🚪 Trả phòng":
         other_charge = st.number_input(
             "💳 Chi phí phát sinh khác",
             min_value=0,
-            step=50000
+            step=50000,
+            key=f"other_charge_{input_version}"
         )
 
         room_price = float(room["price"])
@@ -728,6 +754,7 @@ elif menu == "🚪 Trả phòng":
                 f"Tổng thanh toán: {money(total)}"
             )
 
+            reset_input_widgets()
             st.rerun()
 
 
@@ -748,7 +775,8 @@ elif menu == "🧹 Buồng phòng":
 
     room_number = st.selectbox(
         "Chọn phòng",
-        cleaning_rooms["room_number"].tolist()
+        cleaning_rooms["room_number"].tolist(),
+        key=f"cleaning_room_{input_version}"
     )
 
     st.divider()
@@ -779,7 +807,7 @@ elif menu == "🧹 Buồng phòng":
 
         checked = st.checkbox(
             task,
-            key=f"{room_number}_{task}"
+            key=f"{room_number}_{task}_{input_version}"
         )
 
         if checked:
@@ -815,6 +843,7 @@ elif menu == "🧹 Buồng phòng":
                 f"Phòng {room_number} đã sẵn sàng bán."
             )
 
+            reset_input_widgets()
             st.rerun()
 
 
@@ -835,7 +864,8 @@ elif menu == "🍾 Minibar":
 
     room_number = st.selectbox(
         "Chọn phòng",
-        occupied_rooms["room_number"].tolist()
+        occupied_rooms["room_number"].tolist(),
+        key=f"minibar_room_{input_version}"
     )
 
     minibar_items = [
@@ -855,7 +885,8 @@ elif menu == "🍾 Minibar":
 
     item = st.selectbox(
         "Sản phẩm",
-        item_names
+        item_names,
+        key=f"minibar_item_{input_version}"
     )
 
     item_price = dict(minibar_items)[item]
@@ -864,7 +895,8 @@ elif menu == "🍾 Minibar":
         "Số lượng",
         min_value=1,
         value=1,
-        step=1
+        step=1,
+        key=f"minibar_quantity_{input_version}"
     )
 
     st.write(
@@ -893,6 +925,7 @@ elif menu == "🍾 Minibar":
             f"Đã thêm {quantity} x {item}"
         )
 
+        reset_input_widgets()
         st.rerun()
 
     st.divider()
@@ -1251,7 +1284,8 @@ elif menu == "⚙️ Cài đặt":
     with st.form("add_room"):
 
         room_number = st.text_input(
-            "Số phòng"
+            "Số phòng",
+            key=f"new_room_number_{input_version}"
         )
 
         room_type = st.selectbox(
@@ -1262,20 +1296,23 @@ elif menu == "⚙️ Cài đặt":
                 "Suite",
                 "Family",
                 "VIP"
-            ]
+            ],
+            key=f"new_room_type_{input_version}"
         )
 
         floor = st.number_input(
             "Tầng",
             min_value=1,
-            value=1
+            value=1,
+            key=f"new_room_floor_{input_version}"
         )
 
         price = st.number_input(
             "Giá phòng",
             min_value=0,
             value=500000,
-            step=50000
+            step=50000,
+            key=f"new_room_price_{input_version}"
         )
 
         submit = st.form_submit_button(
@@ -1309,6 +1346,7 @@ elif menu == "⚙️ Cài đặt":
                     f"Đã thêm phòng {room_number}"
                 )
 
+                reset_input_widgets()
                 st.rerun()
 
             except pymysql.IntegrityError:
