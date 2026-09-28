@@ -710,8 +710,8 @@ elif menu == "🚪 Trả phòng":
                 SET status='Đang dọn',
                     guest_name='',
                     phone='',
-                    checkin='',
-                    checkout='',
+                    checkin=NULL,
+                    checkout=NULL,
                     note=''
                 WHERE room_number=%s
             """, (room_number,))
