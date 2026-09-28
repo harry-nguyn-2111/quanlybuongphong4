@@ -570,11 +570,11 @@ elif menu == "📋 Nhận phòng":
                 cursor.execute("""
                     UPDATE rooms
                     SET status='Đang ở',
-                        guest_name=?,
-                        phone=?,
-                        checkin=?,
-                        checkout=?,
-                        note=?
+                        guest_name=%s,
+                        phone=%s,
+                        checkin=%s,
+                        checkout=%s,
+                        note=%s
                     WHERE room_number=%s
                 """, (
                     guest_name,
