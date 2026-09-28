@@ -307,9 +307,9 @@ menu = st.sidebar.radio(
         "📊 Tổng quan",
         "🛏️ Quản lý phòng",
         "📋 Nhận phòng",
+        "🍾 Minibar",
         "🚪 Trả phòng",
         "🧹 Buồng phòng",
-        "🍾 Minibar",
         "💰 Doanh thu",
         "⚙️ Cài đặt",
         "🤖 Trợ lý AI"
