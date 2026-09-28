@@ -4,6 +4,10 @@ from datetime import datetime, date
 import pymysql
 import os
 
+from google import genai
+from google.genai import types
+
+
 st.image("VT.png", width=2000)
 
 # ============================================================
@@ -27,6 +31,29 @@ DB_CONFIG = {
     "ssl": {}
 }
 
+
+# ============================================================
+# GEMINI
+# ============================================================
+
+GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
+
+
+@st.cache_resource
+def get_gemini_client():
+    if not GEMINI_API_KEY:
+        return None
+
+    return genai.Client(
+        api_key=GEMINI_API_KEY
+    )
+
+
+gemini_client = get_gemini_client()
+
+GEMINI_MODEL = "gemini-3.8-flash"
+
+
 # ============================================================
 # DATABASE
 # ============================================================
@@ -37,6 +64,7 @@ def get_connection():
 
 conn = get_connection()
 cursor = conn.cursor()
+
 
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS rooms (
@@ -54,6 +82,7 @@ CREATE TABLE IF NOT EXISTS rooms (
 )
 """)
 
+
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS housekeeping (
     id INT PRIMARY KEY AUTO_INCREMENT,
@@ -64,6 +93,7 @@ CREATE TABLE IF NOT EXISTS housekeeping (
 )
 """)
 
+
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS minibar (
     id INT PRIMARY KEY AUTO_INCREMENT,
@@ -73,6 +103,7 @@ CREATE TABLE IF NOT EXISTS minibar (
     price DECIMAL(10,2) DEFAULT 0
 )
 """)
+
 
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS transactions (
@@ -85,7 +116,9 @@ CREATE TABLE IF NOT EXISTS transactions (
 )
 """)
 
+
 conn.commit()
+
 
 # ============================================================
 # DỮ LIỆU MẶC ĐỊNH
@@ -104,6 +137,7 @@ default_rooms = [
     ("205", "Suite", 2, 1200000),
 ]
 
+
 for room in default_rooms:
     cursor.execute("""
         INSERT IGNORE INTO rooms
@@ -111,7 +145,9 @@ for room in default_rooms:
         VALUES (%s, %s, %s, %s)
     """, room)
 
+
 conn.commit()
+
 
 # ============================================================
 # HÀM TIỆN ÍCH
@@ -152,11 +188,215 @@ def add_transaction(room_number, guest_name, transaction_type, amount):
 
 
 # ============================================================
+# HÀM LẤY DATA CHO GEMINI
+# ============================================================
+
+def get_ai_data():
+
+    rooms_data = pd.read_sql_query("""
+        SELECT
+            room_number,
+            room_type,
+            floor,
+            price,
+            status,
+            guest_name,
+            phone,
+            checkin,
+            checkout,
+            note
+        FROM rooms
+        ORDER BY room_number
+    """, conn)
+
+    minibar_data = pd.read_sql_query("""
+        SELECT
+            room_number,
+            item,
+            quantity,
+            price,
+            quantity * price AS total
+        FROM minibar
+        ORDER BY room_number
+    """, conn)
+
+    transactions_data = pd.read_sql_query("""
+        SELECT
+            room_number,
+            guest_name,
+            transaction_type,
+            amount,
+            created_at
+        FROM transactions
+        ORDER BY id DESC
+    """, conn)
+
+    housekeeping_data = pd.read_sql_query("""
+        SELECT
+            room_number,
+            task,
+            completed,
+            updated_at
+        FROM housekeeping
+        ORDER BY room_number
+    """, conn)
+
+    return {
+        "rooms": rooms_data.to_json(
+            orient="records",
+            force_ascii=False
+        ),
+        "minibar": minibar_data.to_json(
+            orient="records",
+            force_ascii=False
+        ),
+        "transactions": transactions_data.to_json(
+            orient="records",
+            force_ascii=False
+        ),
+        "housekeeping": housekeeping_data.to_json(
+            orient="records",
+            force_ascii=False
+        )
+    }
+
+
+def ask_gemini(question):
+
+    if gemini_client is None:
+        return (
+            "Chưa cấu hình GEMINI_API_KEY. "
+            "Vui lòng thêm key vào Streamlit Secrets."
+        )
+
+    try:
+
+        data = get_ai_data()
+
+        system_instruction = """
+Bạn là trợ lý AI của ứng dụng Hotel Manager.
+
+Bạn đang hỗ trợ người dùng sử dụng một hệ thống quản lý khách sạn.
+
+Các bảng dữ liệu hiện có:
+
+1. rooms
+- room_number: số phòng
+- room_type: loại phòng
+- floor: tầng
+- price: giá phòng
+- status: trạng thái phòng
+- guest_name: tên khách
+- phone: số điện thoại
+- checkin: ngày nhận phòng
+- checkout: ngày trả phòng
+- note: ghi chú
+
+Các trạng thái phòng:
+- Trống
+- Đang ở
+- Đang dọn
+- Bảo trì
+
+2. minibar
+- room_number: số phòng
+- item: sản phẩm
+- quantity: số lượng
+- price: đơn giá
+- total: thành tiền
+
+3. transactions
+- room_number: số phòng
+- guest_name: tên khách
+- transaction_type: loại giao dịch
+- amount: số tiền
+- created_at: thời gian
+
+4. housekeeping
+- room_number: số phòng
+- task: công việc
+- completed: trạng thái hoàn thành
+- updated_at: thời gian cập nhật
+
+Quy tắc:
+
+- Chỉ sử dụng dữ liệu được cung cấp.
+- Không được tự bịa số liệu.
+- Nếu dữ liệu không có, nói rõ là không có dữ liệu.
+- Khi người dùng hỏi về phòng, khách, minibar hoặc doanh thu,
+  hãy ưu tiên sử dụng dữ liệu thực tế được cung cấp.
+- Trả lời bằng tiếng Việt.
+- Trả lời ngắn gọn, dễ hiểu.
+- Có thể giải thích cách sử dụng các chức năng của ứng dụng.
+- Không tự thực hiện thay đổi dữ liệu trong database.
+- Đây là trợ lý READ ONLY.
+"""
+
+        data_context = f"""
+DỮ LIỆU THỰC TẾ HIỆN TẠI TỪ DATABASE:
+
+ROOMS:
+{data["rooms"]}
+
+MINIBAR:
+{data["minibar"]}
+
+TRANSACTIONS:
+{data["transactions"]}
+
+HOUSEKEEPING:
+{data["housekeeping"]}
+"""
+
+        history_text = ""
+
+        if "ai_messages" in st.session_state:
+
+            recent_messages = st.session_state.ai_messages[-10:]
+
+            for message in recent_messages:
+
+                role = message["role"]
+                content = message["content"]
+
+                history_text += f"""
+{role.upper()}: {content}
+"""
+
+        prompt = f"""
+{data_context}
+
+LỊCH SỬ HỘI THOẠI:
+{history_text}
+
+CÂU HỎI HIỆN TẠI:
+{question}
+"""
+
+        response = gemini_client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=system_instruction,
+                temperature=0.2,
+                max_output_tokens=1000
+            )
+        )
+
+        return response.text
+
+    except Exception as e:
+
+        return f"Không thể kết nối Gemini: {str(e)}"
+
+
+# ============================================================
 # SIDEBAR
 # ============================================================
 
 st.sidebar.title("🏨 HOTEL MANAGER")
 st.sidebar.caption("Hệ thống quản lý khách sạn")
+
 
 menu = st.sidebar.radio(
     "MENU",
@@ -168,22 +408,45 @@ menu = st.sidebar.radio(
         "🧹 Buồng phòng",
         "🍾 Minibar",
         "💰 Doanh thu",
+        "🤖 Trợ lý AI",
         "⚙️ Cài đặt"
     ]
 )
 
+
 st.sidebar.divider()
+
 
 rooms = get_rooms()
 
 total_rooms = len(rooms)
-occupied = len(rooms[rooms["status"] == "Đang ở"])
-available = len(rooms[rooms["status"] == "Trống"])
-cleaning = len(rooms[rooms["status"] == "Đang dọn"])
-maintenance = len(rooms[rooms["status"] == "Bảo trì"])
 
-st.sidebar.metric("Tổng số phòng", total_rooms)
-st.sidebar.metric("Đang có khách", occupied)
+occupied = len(
+    rooms[rooms["status"] == "Đang ở"]
+)
+
+available = len(
+    rooms[rooms["status"] == "Trống"]
+)
+
+cleaning = len(
+    rooms[rooms["status"] == "Đang dọn"]
+)
+
+maintenance = len(
+    rooms[rooms["status"] == "Bảo trì"]
+)
+
+
+st.sidebar.metric(
+    "Tổng số phòng",
+    total_rooms
+)
+
+st.sidebar.metric(
+    "Đang có khách",
+    occupied
+)
 
 
 # ============================================================
@@ -193,29 +456,52 @@ st.sidebar.metric("Đang có khách", occupied)
 if menu == "📊 Tổng quan":
 
     st.title("📊 Tổng quan khách sạn")
+
     st.caption(
         f"Cập nhật: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
     )
 
     col1, col2, col3, col4, col5 = st.columns(5)
 
-    col1.metric("🏨 Tổng phòng", total_rooms)
-    col2.metric("🟢 Phòng trống", available)
-    col3.metric("🔴 Đang ở", occupied)
-    col4.metric("🧹 Đang dọn", cleaning)
-    col5.metric("🔧 Bảo trì", maintenance)
+    col1.metric(
+        "🏨 Tổng phòng",
+        total_rooms
+    )
+
+    col2.metric(
+        "🟢 Phòng trống",
+        available
+    )
+
+    col3.metric(
+        "🔴 Đang ở",
+        occupied
+    )
+
+    col4.metric(
+        "🧹 Đang dọn",
+        cleaning
+    )
+
+    col5.metric(
+        "🔧 Bảo trì",
+        maintenance
+    )
 
     st.divider()
 
-    # Công suất phòng
     occupancy = 0
+
     if total_rooms > 0:
         occupancy = occupied / total_rooms * 100
 
     st.subheader("📈 Công suất phòng")
 
     st.progress(int(occupancy))
-    st.write(f"**{occupancy:.1f}%** phòng đang có khách")
+
+    st.write(
+        f"**{occupancy:.1f}%** phòng đang có khách"
+    )
 
     st.divider()
 
@@ -235,6 +521,7 @@ if menu == "📊 Tổng quan":
         col = cols[index % 5]
 
         with col:
+
             st.markdown(
                 f"""
                 ### {room['room_number']}
@@ -259,12 +546,20 @@ elif menu == "🛏️ Quản lý phòng":
     col1, col2 = st.columns(2)
 
     with col1:
+
         filter_status = st.selectbox(
             "Lọc theo trạng thái",
-            ["Tất cả", "Trống", "Đang ở", "Đang dọn", "Bảo trì"]
+            [
+                "Tất cả",
+                "Trống",
+                "Đang ở",
+                "Đang dọn",
+                "Bảo trì"
+            ]
         )
 
     with col2:
+
         search = st.text_input(
             "🔎 Tìm số phòng"
         )
@@ -272,11 +567,13 @@ elif menu == "🛏️ Quản lý phòng":
     filtered = rooms.copy()
 
     if filter_status != "Tất cả":
+
         filtered = filtered[
             filtered["status"] == filter_status
         ]
 
     if search:
+
         filtered = filtered[
             filtered["room_number"].str.contains(
                 search,
@@ -339,6 +636,7 @@ elif menu == "🛏️ Quản lý phòng":
         "💾 Cập nhật trạng thái",
         type="primary"
     ):
+
         update_room_status(
             room_number,
             new_status
@@ -365,7 +663,9 @@ elif menu == "📋 Nhận phòng":
 
     if available_rooms.empty:
 
-        st.warning("Hiện không có phòng trống.")
+        st.warning(
+            "Hiện không có phòng trống."
+        )
 
     else:
 
@@ -377,7 +677,9 @@ elif menu == "📋 Nhận phòng":
 
                 room_number = st.selectbox(
                     "🛏️ Phòng",
-                    available_rooms["room_number"].tolist()
+                    available_rooms[
+                        "room_number"
+                    ].tolist()
                 )
 
                 guest_name = st.text_input(
@@ -413,7 +715,9 @@ elif menu == "📋 Nhận phòng":
 
             if not guest_name.strip():
 
-                st.error("Vui lòng nhập tên khách.")
+                st.error(
+                    "Vui lòng nhập tên khách."
+                )
 
             elif checkout_date < checkin_date:
 
@@ -475,13 +779,17 @@ elif menu == "🚪 Trả phòng":
 
     if occupied_rooms.empty:
 
-        st.info("Hiện không có khách đang ở.")
+        st.info(
+            "Hiện không có khách đang ở."
+        )
 
     else:
 
         room_number = st.selectbox(
             "Chọn phòng trả",
-            occupied_rooms["room_number"].tolist()
+            occupied_rooms[
+                "room_number"
+            ].tolist()
         )
 
         room = occupied_rooms[
@@ -508,7 +816,10 @@ elif menu == "🚪 Trả phòng":
         st.divider()
 
         cursor.execute("""
-            SELECT COALESCE(SUM(quantity * price), 0)
+            SELECT COALESCE(
+                SUM(quantity * price),
+                0
+            )
             FROM minibar
             WHERE room_number=%s
         """, (room_number,))
@@ -521,11 +832,19 @@ elif menu == "🚪 Trả phòng":
             step=50000
         )
 
-        room_price = float(room["price"])
+        room_price = float(
+            room["price"]
+        )
 
-        total = room_price + float(minibar_total) + other_charge
+        total = (
+            room_price
+            + float(minibar_total)
+            + other_charge
+        )
 
-        st.subheader("💰 Tổng thanh toán")
+        st.subheader(
+            "💰 Tổng thanh toán"
+        )
 
         c1, c2, c3, c4 = st.columns(4)
 
@@ -704,7 +1023,9 @@ elif menu == "🍾 Minibar":
         item_names
     )
 
-    item_price = dict(minibar_items)[item]
+    item_price = dict(
+        minibar_items
+    )[item]
 
     quantity = st.number_input(
         "Số lượng",
@@ -744,8 +1065,12 @@ elif menu == "🍾 Minibar":
     st.divider()
 
     minibar_data = pd.read_sql_query("""
-        SELECT room_number, item, quantity, price,
-               quantity * price AS total
+        SELECT
+            room_number,
+            item,
+            quantity,
+            price,
+            quantity * price AS total
         FROM minibar
         WHERE room_number=%s
     """, conn, params=(room_number,))
@@ -781,17 +1106,25 @@ elif menu == "💰 Doanh thu":
     st.title("💰 Doanh thu")
 
     transactions = pd.read_sql_query(
-        "SELECT * FROM transactions ORDER BY id DESC",
+        """
+        SELECT *
+        FROM transactions
+        ORDER BY id DESC
+        """,
         conn
     )
 
     if transactions.empty:
 
-        st.info("Chưa có giao dịch.")
+        st.info(
+            "Chưa có giao dịch."
+        )
 
     else:
 
-        total_revenue = transactions["amount"].sum()
+        total_revenue = transactions[
+            "amount"
+        ].sum()
 
         room_revenue = transactions[
             transactions["transaction_type"] == "Tiền phòng"
@@ -820,7 +1153,9 @@ elif menu == "💰 Doanh thu":
 
         st.divider()
 
-        st.subheader("📋 Lịch sử giao dịch")
+        st.subheader(
+            "📋 Lịch sử giao dịch"
+        )
 
         st.dataframe(
             transactions,
@@ -828,24 +1163,130 @@ elif menu == "💰 Doanh thu":
             hide_index=True
         )
 
-        st.subheader("📊 Doanh thu theo loại")
+        st.subheader(
+            "📊 Doanh thu theo loại"
+        )
 
         revenue_chart = transactions.groupby(
             "transaction_type"
         )["amount"].sum()
 
-        st.bar_chart(revenue_chart)
+        st.bar_chart(
+            revenue_chart
+        )
 
 
 # ============================================================
-# 8. CÀI ĐẶT
+# 8. TRỢ LÝ AI
+# ============================================================
+
+elif menu == "🤖 Trợ lý AI":
+
+    st.title("🤖 Trợ lý AI")
+
+    st.caption(
+        "Hỏi Gemini về khách sạn, phòng, khách, minibar, "
+        "doanh thu hoặc cách sử dụng hệ thống."
+    )
+
+    if not GEMINI_API_KEY:
+
+        st.error(
+            "Chưa tìm thấy GEMINI_API_KEY."
+        )
+
+        st.info(
+            "Vào Streamlit Cloud → Settings → Secrets "
+            "và thêm GEMINI_API_KEY."
+        )
+
+    else:
+
+        if "ai_messages" not in st.session_state:
+
+            st.session_state.ai_messages = []
+
+        if not st.session_state.ai_messages:
+
+            st.info(
+                "Ví dụ: "
+                "\"Hiện có bao nhiêu phòng trống?\"  \n"
+                "\"Phòng nào đang có khách?\"  \n"
+                "\"Doanh thu hiện tại là bao nhiêu?\"  \n"
+                "\"Phòng 101 có minibar gì?\"  \n"
+                "\"Làm sao để nhận phòng cho khách?\""
+            )
+
+        for message in st.session_state.ai_messages:
+
+            with st.chat_message(
+                message["role"]
+            ):
+
+                st.markdown(
+                    message["content"]
+                )
+
+        user_question = st.chat_input(
+            "Nhập câu hỏi..."
+        )
+
+        if user_question:
+
+            st.session_state.ai_messages.append({
+                "role": "user",
+                "content": user_question
+            })
+
+            with st.chat_message("user"):
+
+                st.markdown(
+                    user_question
+                )
+
+            with st.chat_message("assistant"):
+
+                with st.spinner(
+                    "Gemini đang suy nghĩ..."
+                ):
+
+                    answer = ask_gemini(
+                        user_question
+                    )
+
+                st.markdown(
+                    answer
+                )
+
+            st.session_state.ai_messages.append({
+                "role": "assistant",
+                "content": answer
+            })
+
+        if st.session_state.ai_messages:
+
+            st.divider()
+
+            if st.button(
+                "🗑️ Xóa lịch sử chat"
+            ):
+
+                st.session_state.ai_messages = []
+
+                st.rerun()
+
+
+# ============================================================
+# 9. CÀI ĐẶT
 # ============================================================
 
 elif menu == "⚙️ Cài đặt":
 
     st.title("⚙️ Cài đặt hệ thống")
 
-    st.subheader("➕ Thêm phòng mới")
+    st.subheader(
+        "➕ Thêm phòng mới"
+    )
 
     with st.form("add_room"):
 
@@ -885,7 +1326,9 @@ elif menu == "⚙️ Cài đặt":
 
         if not room_number:
 
-            st.error("Vui lòng nhập số phòng.")
+            st.error(
+                "Vui lòng nhập số phòng."
+            )
 
         else:
 
@@ -918,7 +1361,9 @@ elif menu == "⚙️ Cài đặt":
 
     st.divider()
 
-    st.subheader("🗑️ Xóa phòng")
+    st.subheader(
+        "🗑️ Xóa phòng"
+    )
 
     rooms = get_rooms()
 
