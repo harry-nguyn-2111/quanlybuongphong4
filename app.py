@@ -651,11 +651,13 @@ elif menu == "🚪 Trả phòng":
 
         st.divider()
 
-        minibar_total = cursor.execute("""
+        cursor.execute("""
             SELECT COALESCE(SUM(quantity * price), 0)
             FROM minibar
             WHERE room_number=%s
-        """, (room_number,)).fetchone()[0]
+        """, (room_number,))
+
+        minibar_total = cursor.fetchone()[0]
 
         other_charge = st.number_input(
             "💳 Chi phí phát sinh khác",
