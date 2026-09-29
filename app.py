@@ -12,7 +12,7 @@ st.image("VT.png", width=2000)
 # ============================================================
 
 st.set_page_config(
-    page_title="Hotel Manager",
+    page_title="Nhóm Bánh Mì",
     page_icon="🏨",
     layout="wide",
     initial_sidebar_state="expanded"
